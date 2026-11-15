@@ -31,6 +31,12 @@ Examples
 --------
 Provided with the parsing module `Evtx` are four scripts that mimic the tools distributed with Parse-Evtx.  `evtx_info.py` prints metadata about the event log and verifies the checksums of each chunk.  `evtx_templates.py` builds and prints the templates used throughout the event log. `evtx_dump.py` parses the event log and transforms the binary XML into a human readable ASCII XML format. Finally, `evtx_dump_json.py` parses event logs, similar to `evtx_dump.py` and transforms the binary XML into JSON with the added capability to output the JSON array to a file. 
 
+`evtx_dump.py` always writes a complete XML document, even when the input is truncated or corrupted.  Records that can still be decoded are dumped; every damaged structure is reported on stderr with one line, and every chunk is reconciled against the record numbers declared in its header:
+
+    evtx_dump: chunk=0 record=2 offset=0x1f81 code=BINXML_VALUE_DECODE detail=UnicodeDecodeError: ...
+
+Each line carries the chunk index, the record number (`-` when it cannot be read), the absolute file offset (for a BinXML value, the offset of the failing value node) and a stable error code.  The exit status is `0` when the whole file was recovered and every checksum verified, `1` when anything was damaged or missing, and `2` when the file could not be read at all.
+
 Note the length of the `evtx_dump.py` script: its only 20 lines.  Now, review the contents and notice the complete implementation of the logic:
 
     print(e_views.XML_HEADER)

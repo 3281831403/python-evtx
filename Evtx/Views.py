@@ -92,6 +92,60 @@ def validate_name(s):
     return s
 
 
+def _annotate_node_exception(exc, node, is_value_node=False):
+    """
+    remember which node failed while rendering, without changing the exception type.
+
+    callers such as evtx_dump use these attributes to report an absolute offset
+    for the structure that could not be decoded.  record.xml() still raises the
+    original exception type unchanged.
+    """
+    if getattr(exc, "evtx_absolute_offset", None) is None:
+        try:
+            exc.evtx_absolute_offset = node.offset()
+        except Exception:
+            return
+    if getattr(exc, "evtx_node_type", None) is None:
+        try:
+            exc.evtx_node_type = type(node).__name__
+        except Exception:
+            pass
+    if is_value_node:
+        exc.evtx_value_node = True
+
+
+def _value_node_string(node):
+    """
+    render the variant value held by the given ValueNode.
+
+    if decoding the value fails, annotate the exception with the offset of the
+    value node (rather than the enclosing value token), then re-raise it.
+    """
+    child = None
+    try:
+        child = node.children()[0]
+        return child.string()
+    except Exception as exc:
+        _annotate_node_exception(exc, child if child is not None else node, is_value_node=True)
+        raise
+
+
+def _substitution_string(sub):
+    """
+    render the value referenced by a substitution token.
+
+    failures are annotated with the offset of the substituted value node,
+    then re-raised unchanged.
+    """
+    if isinstance(sub, e_nodes.BXmlTypeNode):
+        return render_root_node(sub.root())
+    try:
+        return escape_value(sub.string())
+    except Exception as exc:
+        _annotate_node_exception(exc, sub, is_value_node=True)
+        raise
+
+
 def render_root_node_with_subs(root_node, subs):
     """
     render the given root node using the given substitutions into XML.
@@ -105,6 +159,13 @@ def render_root_node_with_subs(root_node, subs):
     """
 
     def rec(node, acc):
+        try:
+            _rec(node, acc)
+        except Exception as exc:
+            _annotate_node_exception(exc, node)
+            raise
+
+    def _rec(node, acc):
         if isinstance(node, e_nodes.EndOfStreamNode):
             pass  # intended
         elif isinstance(node, e_nodes.OpenStartElementNode):
@@ -132,7 +193,7 @@ def render_root_node_with_subs(root_node, subs):
         elif isinstance(node, e_nodes.CloseElementNode):
             pass  # intended
         elif isinstance(node, e_nodes.ValueNode):
-            acc.append(escape_value(node.children()[0].string()))
+            acc.append(escape_value(_value_node_string(node)))
         elif isinstance(node, e_nodes.AttributeNode):
             pass  # intended
         elif isinstance(node, e_nodes.CDataSectionNode):
@@ -149,42 +210,38 @@ def render_root_node_with_subs(root_node, subs):
         elif isinstance(node, e_nodes.TemplateInstanceNode):
             raise UnexpectedElementException("TemplateInstanceNode")
         elif isinstance(node, e_nodes.NormalSubstitutionNode):
-            sub = subs[node.index()]
-
-            if isinstance(sub, e_nodes.BXmlTypeNode):
-                sub = render_root_node(sub.root())
-            else:
-                sub = escape_value(sub.string())
-
-            acc.append(sub)
+            acc.append(_substitution_string(subs[node.index()]))
         elif isinstance(node, e_nodes.ConditionalSubstitutionNode):
-            sub = subs[node.index()]
-
-            if isinstance(sub, e_nodes.BXmlTypeNode):
-                sub = render_root_node(sub.root())
-            else:
-                sub = escape_value(sub.string())
-
-            acc.append(sub)
+            acc.append(_substitution_string(subs[node.index()]))
         elif isinstance(node, e_nodes.StreamStartNode):
             pass  # intended
 
+    try:
+        children = root_node.template().children()
+    except Exception as exc:
+        _annotate_node_exception(exc, root_node)
+        raise
+
     acc = []
-    for c in root_node.template().children():
+    for c in children:
         rec(c, acc)
     return "".join(acc)
 
 
 def render_root_node(root_node):
-    subs = []
-    for sub in root_node.substitutions():
-        if isinstance(sub, str):
-            raise RuntimeError("string sub?")
+    try:
+        subs = []
+        for sub in root_node.substitutions():
+            if isinstance(sub, str):
+                raise RuntimeError("string sub?")
 
-        if sub is None:
-            raise RuntimeError("null sub?")
+            if sub is None:
+                raise RuntimeError("null sub?")
 
-        subs.append(sub)
+            subs.append(sub)
+    except Exception as exc:
+        _annotate_node_exception(exc, root_node)
+        raise
 
     return render_root_node_with_subs(root_node, subs)
 

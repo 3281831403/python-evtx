@@ -159,6 +159,9 @@ class OverrunBufferException(ParseException):
     def __init__(self, readOffs, bufLen):
         tvalue = "read: {}, buffer length: {}".format(hex(readOffs), hex(bufLen))
         super(ParseException, self).__init__(tvalue)
+        # the absolute offset at which the read was attempted.
+        # recovery reports this instead of the enclosing structure's offset.
+        self.absolute_offset = readOffs
 
     def __repr__(self):
         return "OverrunBufferException({!r})".format(self._value)

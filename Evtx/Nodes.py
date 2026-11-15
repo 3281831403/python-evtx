@@ -151,8 +151,13 @@ class BXmlNode(Block):
                 child = HandlerNodeClass(self._buf, self.offset() + ofs, self._chunk, self)
             except IndexError:
                 raise ParseException("Unexpected token {:02X} at {}".format(token, self.absolute_offset(0x0) + ofs))
+            child_length = child.length()
+            if child_length <= 0:
+                # otherwise a zero-length child would spin here forever on a
+                # damaged structure that never reaches an end token.
+                raise ParseException("Unexpected zero-length child at {}".format(self.absolute_offset(0x0) + ofs))
             ret.append(child)
-            ofs += child.length()
+            ofs += child_length
             if token in end_tokens:
                 break
             if child.find_end_of_stream():

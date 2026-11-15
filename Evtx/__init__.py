@@ -18,5 +18,6 @@ __all__ = [
     "Evtx",
     "BinaryParser",
     "Nodes",
+    "Recovery",
     "Views",
 ]
